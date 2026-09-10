@@ -2,6 +2,18 @@
 
 ## [Unreleased]
 
+## [1.4.10] - 2026-09-10
+
+### 兼容性
+- 在 DSH 0.1.5-rc.1 上重新核对行判别式与主题令牌，新增该预览宿主的验证记录。
+
+### 修复
+- **批注强调色重新跟随主题**：`--dsw-alias-text-accent` 在 0.1.5 主题中已被移除（整个 `--dsw-alias-text-*` 家族不再存在），编号角标、批注芯片、回复芯片与输入框聚焦边框此前静默回退到硬编码 `#4c9aff`，浅色/深色主题下都不再跟随宿主强调色。改用 0.1.5 主题实际导出的 `--dsw-alias-state-business-primary`（= `--dsw-static-deepseek-500`），并同步更新兜底值。
+- **弹层分隔线在浅色主题下不再发黑**：`--dsw-alias-border-strong` 同样已在 0.1.5 主题中移除，气泡标签与批注列表项的 `border-top` 此前回退到硬编码 `#444`（深色灰），浅色主题下明显违和。改用 `--dsw-alias-border-l3`。
+
+### 文档
+- 按 0.1.5-rc.1 的 `dsh-client-ui-chat` 源码更新行判别式注释：消息行 = `[data-chat-flow-kind]`，助手行 = `assistant-step`，用户行 = `user`；补充行包装与消息组件之间的 `div[data-slot="conversation.chat.node"]`（`display:contents`）说明；用户气泡文本现包在 `span._plainRun_*` 中且可能为多文本节点（含 `@` 引用/斜杠芯片时）。
+
 ## [1.4.9] - 2026-09-09
 
 ### 兼容性

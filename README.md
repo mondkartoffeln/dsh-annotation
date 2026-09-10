@@ -1,6 +1,6 @@
 # dsh-annotation
 
-Verified hosts: DSH 0.1.2-rc.1 for stable releases and DSH 0.1.5-alpha.1 for previews. These are core versions, not Desktop shell versions.
+Verified hosts: DSH 0.1.2-rc.1 for stable releases and DSH 0.1.5-rc.1 for previews (0.1.5-alpha.1 also verified). These are core versions, not Desktop shell versions.
 
 <div align="center">
 
@@ -137,6 +137,7 @@ Environments without a service manager (e.g. some containers) often need **no re
 
 | Version | Highlights |
 |---|---|
+| v1.4.10 | DSH 0.1.5-rc.1 adaptation audit: dropped removed theme tokens (`--dsw-alias-text-accent` / `--dsw-alias-border-strong`) for tokens the 0.1.5 theme actually exports; refreshed the row-discriminator docs |
 | v1.4.x | Locale-aware: zh/en UI copy and annotation protocol block, live switch via DSH `locale` service |
 | v1.3.x | Numbered reply correspondence: format-instruction injection + hoverable `Annotation N:` chips (TreeWalker snapshot fix) |
 | v1.2.x | Hidden annotation block in bubble: MutationObserver microtask zero-flicker + polling fallback + historical-message repair |

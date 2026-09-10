@@ -1,6 +1,6 @@
 # dsh-annotation
 
-验证宿主：正式版 DSH 0.1.2-rc.1；预览版 DSH 0.1.5-alpha.1。版本号指 DSH 内核，不是 Desktop 外壳。
+验证宿主：正式版 DSH 0.1.2-rc.1；预览版 DSH 0.1.5-rc.1（0.1.5-alpha.1 亦已验证）。版本号指 DSH 内核，不是 Desktop 外壳。
 
 <div align="center">
 
@@ -137,6 +137,7 @@ systemctl --user restart dsh-web
 
 | 版本 | 内容 |
 |---|---|
+| v1.4.10 | DSH 0.1.5-rc.1 适配核对：移除失效主题令牌（`--dsw-alias-text-accent` / `--dsw-alias-border-strong`）改用 0.1.5 主题令牌；刷新行判别式文档 |
 | v1.4.x | 语言跟随：zh/en UI 文案与批注协议块，经 DSH `locale` 服务实时切换 |
 | v1.3.x | 回复逐条对照：格式指令注入 + 「Annotation N：」可悬浮芯片（TreeWalker 快照修复） |
 | v1.2.x | 气泡隐藏批注块：MutationObserver 微任务零闪烁 + 轮询兜底 + 历史消息修复 |

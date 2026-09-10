@@ -32,8 +32,17 @@
 // 气泡装饰走 MutationObserver + 轮询，只负责隐藏/贴标签，绝不清空待发送批注
 // （历史消息重装饰与刚发送在 DOM 上不可区分，见 decorateAll）。
 //
-// 判别式与 omdsh-dev/navbar 一致：助手行 = [data-time-hover-root] 且不含
-// user bubble（[class*="bubble"]）。
+// 行判别式（已在 DSH 0.1.5-rc.1 上核对 dsh-client-ui-chat 源码）：
+//   消息行 = [data-chat-flow-kind]（ChatNodeSeat 行包装，kind 直接取自 node kind）
+//   助手行 = [data-chat-flow-kind="assistant-step"]（每个模型 step 一行）
+//   用户行 = [data-chat-flow-kind="user"]（steering 行共用同一视觉结构）
+// 行包装与消息组件之间还有一层 <div data-slot="conversation.chat.node"
+// style="display:contents">，所以行内查询必须继续用后代选择器。
+// 用户气泡 = 行内 [class*="bubble"]（CSS Modules 哈希名如 Sixlwa_bubble，
+// white-space:pre-wrap）；气泡文本被包在 span._plainRun_* 里，可能有多个
+// 文本节点（含 @引用/斜杠 芯片时），故隐藏手术按文本节点遍历而非取首子节点。
+// data-streaming 在 AssistantMarkdown 根（行内元素）上、不在行包装上。
+// 旧版 data-time-hover-root 判别式仅作回滚兜底保留（0.1.5-rc.1 已无该属性）。
 // focus-chat（@dingyi222666/dsh-focus-chat）兼容：其会话视图挂载在
 // [data-focus-flow] 内，助手行 = class 含 "assistant" 的容器（CSS Modules
 // 哈希名形如 `<hash>_assistant`，流式期间行自带 data-streaming），用户行
@@ -110,7 +119,7 @@ window.__ModuleLoader__.load({
         '  border-radius: 8px; background: var(--dsw-alias-bg-layer-1); }',
         '.dsh-ann-qnum { flex: none; display: inline-flex; align-items: center; justify-content: center;',
         '  width: 16px; height: 16px; margin-top: 1px; border-radius: 8px;',
-        '  background: var(--dsw-alias-text-accent, #4c9aff); color: #fff;',
+        '  background: var(--dsw-alias-state-business-primary, #4176e6); color: #fff;',
         '  font-size: 10px; font-weight: 700; }',
         '.dsh-ann-qbody { flex: 1; min-width: 0; }',
         '.dsh-ann-qtext { font-size: 12px; line-height: 1.5;',
@@ -132,7 +141,7 @@ window.__ModuleLoader__.load({
         '  background: var(--dsw-alias-bg-layer-1); color: var(--dsw-alias-label-primary);',
         '  font-family: inherit; font-size: 13px; line-height: 20px;',
         '  outline: none; resize: vertical; transition: border-color .15s ease; }',
-        '.dsh-ann-input:focus { border-color: var(--dsw-alias-text-accent, #4c9aff); }',
+        '.dsh-ann-input:focus { border-color: var(--dsw-alias-state-business-primary, #4176e6); }',
         '.dsh-ann-input::placeholder { color: var(--dsw-alias-label-dimmed); }',
         '.dsh-ann-row { display: flex; gap: 8px; margin-top: 10px; justify-content: flex-end; }',
         '.dsh-ann-cancel { display: inline-flex; align-items: center; height: 28px; padding: 0 12px;',
@@ -147,7 +156,7 @@ window.__ModuleLoader__.load({
         '.dsh-ann-num { position: fixed; z-index: 940; display: inline-flex; align-items: center;',
         '  justify-content: center; min-width: 16px; height: 16px; padding: 0 4px;',
         '  border-radius: 8px; border: 1px solid rgba(255, 255, 255, .3);',
-        '  background: var(--dsw-alias-text-accent, #4c9aff); color: #fff;',
+        '  background: var(--dsw-alias-state-business-primary, #4176e6); color: #fff;',
         '  font-family: var(--dsw-font-family, system-ui); font-size: 10px; font-weight: 700;',
         '  box-shadow: 0 1px 4px rgba(0,0,0,.35); pointer-events: auto; cursor: pointer;',
         '  transition: filter .12s ease; }',
@@ -285,10 +294,10 @@ window.__ModuleLoader__.load({
     var PARSE_MARKERS = ['\n\n提问：', '\n\n问题：', '\n\nAsk:']
 
     // ============================== 工具 ==============================
-    // 助手行判别：0810 snapshot 起助手消息行 = ChatNodeSeat 上的
-    // data-chat-flow-kind="assistant-step"（旧版 data-time-hover-root 已不再
-    // 出现在助手消息主体上，只留在用户行与 turn 尾节点）；保留旧判别式兜底
-    // 兼容回滚旧 snapshot，并排除新版 data-turn-tail 误判。
+    // 助手行判别：DSH 0.1.5-rc.1 起助手消息行 = 行包装上的
+    // data-chat-flow-kind="assistant-step"（每个模型 step 一行，kind 直接取自
+    // Chat Node kind，非 CSS Modules 哈希名）；data-time-hover-root 在 0.1.5
+    // 已完全移除，旧判别式只作回滚兜底保留，并用 data-turn-tail 排除 turn 尾。
     function isAssistantRow(el) {
       if (el.matches('[data-chat-flow-kind="assistant-step"]')) return true
       return el.hasAttribute('data-time-hover-root')
@@ -1657,7 +1666,7 @@ window.__ModuleLoader__.load({
         }
         chipLayer.textContent = ''
         var b = document.createElement('b')
-        b.style.cssText = 'color:var(--dsw-alias-text-accent,#4c9aff);font-weight:700;'
+        b.style.cssText = 'color:var(--dsw-alias-state-business-primary,#4176e6);font-weight:700;'
         b.textContent = String(ui.quotes.length)
         chipLayer.appendChild(b)
         chipLayer.appendChild(document.createTextNode(t('chip.count')))
@@ -1712,9 +1721,9 @@ window.__ModuleLoader__.load({
         for (var i = 0; i < ui.quotes.length; i++) {
           var q = ui.quotes[i]
           var item = document.createElement('div')
-          item.style.cssText = 'padding:6px 0;border-top:1px solid var(--dsw-alias-border-strong,#444);'
+          item.style.cssText = 'padding:6px 0;border-top:1px solid var(--dsw-alias-border-l3,#0000001f);'
           var num = document.createElement('span')
-          num.style.cssText = 'display:inline-flex;align-items:center;justify-content:center;min-width:16px;height:16px;margin-right:6px;border-radius:8px;background:var(--dsw-alias-text-accent,#4c9aff);color:#fff;font-size:10px;font-weight:700;'
+          num.style.cssText = 'display:inline-flex;align-items:center;justify-content:center;min-width:16px;height:16px;margin-right:6px;border-radius:8px;background:var(--dsw-alias-state-business-primary,#4176e6);color:#fff;font-size:10px;font-weight:700;'
           num.textContent = String(i + 1)
           var body = document.createElement('span')
           body.style.cssText = 'font-size:11px;line-height:1.5;color:var(--dsw-alias-label-tertiary);'
@@ -1921,9 +1930,9 @@ window.__ModuleLoader__.load({
             el.appendChild(head)
             for (var i = 0; i < list.length; i++) {
               var item = document.createElement('div')
-              item.style.cssText = 'padding:6px 0;border-top:1px solid var(--dsw-alias-border-strong,#444);'
+              item.style.cssText = 'padding:6px 0;border-top:1px solid var(--dsw-alias-border-l3,#0000001f);'
               var num = document.createElement('span')
-              num.style.cssText = 'display:inline-flex;align-items:center;justify-content:center;min-width:16px;height:16px;margin-right:6px;border-radius:8px;background:var(--dsw-alias-text-accent,#4c9aff);color:#fff;font-size:10px;font-weight:700;'
+              num.style.cssText = 'display:inline-flex;align-items:center;justify-content:center;min-width:16px;height:16px;margin-right:6px;border-radius:8px;background:var(--dsw-alias-state-business-primary,#4176e6);color:#fff;font-size:10px;font-weight:700;'
               num.textContent = String(i + 1)
               var body = document.createElement('span')
               body.style.cssText = 'font-size:11px;line-height:1.5;color:var(--dsw-alias-label-tertiary);'
@@ -2079,7 +2088,7 @@ window.__ModuleLoader__.load({
       function makeReplyChip(num, items) {
         var chip = document.createElement('span')
         chip.setAttribute('data-annotation-reply-chip', '')
-        chip.style.cssText = 'display:inline-flex;align-items:center;height:18px;padding:0 6px;margin:0 2px;border-radius:9px;border:1px solid var(--dsw-alias-border-inverted);background:var(--dsw-specific-menu,#2c2c2e);color:var(--dsw-alias-text-accent,#4c9aff);font-family:var(--dsw-font-family,system-ui);font-size:11px;font-weight:600;cursor:default;vertical-align:middle;'
+        chip.style.cssText = 'display:inline-flex;align-items:center;height:18px;padding:0 6px;margin:0 2px;border-radius:9px;border:1px solid var(--dsw-alias-border-inverted);background:var(--dsw-specific-menu,#2c2c2e);color:var(--dsw-alias-state-business-primary,#4176e6);font-family:var(--dsw-font-family,system-ui);font-size:11px;font-weight:600;cursor:default;vertical-align:middle;'
         chip.textContent = 'Annotation ' + num
         var item = items[num - 1]
         var grace = null
@@ -2106,7 +2115,7 @@ window.__ModuleLoader__.load({
             el.appendChild(quote)
             if (item.note !== '') {
               var note = document.createElement('div')
-              note.style.cssText = 'font-size:11px;color:var(--dsw-alias-text-accent,#4c9aff);margin-top:6px;word-break:break-word;'
+              note.style.cssText = 'font-size:11px;color:var(--dsw-alias-state-business-primary,#4176e6);margin-top:6px;word-break:break-word;'
               note.textContent = t('reply.notePrefix') + truncate(item.note, 80)
               el.appendChild(note)
             }
