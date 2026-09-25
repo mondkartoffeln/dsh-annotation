@@ -841,6 +841,44 @@ window.__ModuleLoader__.load({
     function apply(ctx) {
       var sessions = ctx.sessions
 
+      // ★★★ 2026-09-25 适配 DSH 0.1.7：**当前会话 id 的来源变了**。
+      //
+      //   0.1.5：`sessions.list.getSnapshot().current`
+      //          （SessionListState 那时有 `current` 字段）
+      //   0.1.7：SessionListState 只剩 `{ ids, byId, phase, projectionsBySession }`
+      //          —— **没有 `current` 了**。「当前会话」搬到了 `UiSession` 服务：
+      //          `uiSession.current.value.key`
+      //          （依据：dsh-client-ui-session/lib/client.js
+      //            `const currentId = this.current.value.key;`
+      //           以及 dsh-api-session-controller 的 SessionListState 契约）
+      //
+      //   ★ 症状：读旧位置**恒为 undefined** → `attachAndSend` 第一行
+      //     `if (current === undefined) return false` **静默返回** →
+      //     批注永远拼不进草稿。表现出来就是「批注随消息发不出去」，
+      //     而且控制台一句日志都没有（因为那条 return 不打日志）。
+      //     ★ 这一条是 2026-09-25 实测诊断出来的：诊断行打印
+      //       `current=undefined`，而 `uiSession.current.value.key` 出值。
+      //
+      //   ★ id 带 `session-` 前缀，与 list 快照里 `ids` / `byId` 的键一致，
+      //     也正是 `sessions.scope(id)` 期望的 SessionId 形态。
+      //     （契约：dsh-api-session-controller `scope(id: SessionId): AgentContext | undefined`）
+      //
+      //   ★ 用 `ctx.get('uiSession')` 而不是往 exports.inject 里加 ——
+      //     inject 里加了但服务名不对会让整个插件不加载；get 是软读取。
+      function currentSessionId() {
+        try {
+          var u = ctx.get && ctx.get('uiSession')
+          if (u && u.current && u.current.value && u.current.value.key !== undefined) {
+            return u.current.value.key
+          }
+        } catch (_) {}
+        // 旧路径兜底（0.1.5 及更早）
+        try {
+          return sessions.list.getSnapshot().current
+        } catch (_) {}
+        return undefined
+      }
+
       var host = document.createElement('div')
       host.setAttribute('data-annotation-for-dsh', '')
       document.body.appendChild(host)
@@ -885,7 +923,7 @@ window.__ModuleLoader__.load({
       }
 
       function writeCurrentPendingQuotes() {
-        writePendingQuotes(sessions.list.getSnapshot().current)
+        writePendingQuotes(currentSessionId())
       }
 
       var ignoreUntil = 0
@@ -1149,10 +1187,21 @@ window.__ModuleLoader__.load({
             //        「停止生成」—— **界面上根本没有发送按钮可点**。
             //   → 结果：纯批注永远发不出去（2026-09-25 实测）。
             //   ★ 安全性：空草稿时裸回车本来什么都不做，所以这里接管不会抢用户的动作。
-            if (attached && (e.ctrlKey || e.metaKey || lastAttachWasPure)) {
+            //
+            // ★★★ 2026-09-25 第二次实测：上面那版仍然**没修好** ——
+            //   委托人带着批注发消息，收到的正文里**没有批注块**。
+            //   原因：有文字时我把提交交回给宿主，但**宿主的 React onKeyDown 是上一次
+            //   render 时闭包捕获的**，它读的是旧草稿，看不到我们 capture 阶段写进去的
+            //   批注块 —— 于是它提交了用户原文、把批注丢了。
+            //   → 所以：**只要拼稿成功，一律由我们自己提交**，不再指望宿主。
+            //   ★ 裸回车**不传 mode**：`submit(mode?)` 的 mode 是可选的，不传就是宿主
+            //     默认的「回车提交」语义，用户的「繁忙时发送行为」（排队/插话）偏好仍然生效。
+            //     Ctrl/Cmd 加速路径才显式传 'queue'（宿主的加速路径在「运行中 + 有排队」时
+            //     会走 steerQueue，不是发当前草稿）。
+            if (attached) {
               e.preventDefault()
               e.stopPropagation()
-              submitAttached()
+              submitAttached(e.ctrlKey || e.metaKey ? 'queue' : undefined)
             }
           }
         }
@@ -1161,13 +1210,19 @@ window.__ModuleLoader__.load({
       // 提交）——否则等我们执行时消息已提交，拼稿永远太迟。
       document.addEventListener('keydown', onKeyDown, true)
 
-      function submitAttached() {
-        var current = sessions.list.getSnapshot().current
+      // ★ 2026-09-25：mode 变成可选。
+      //   `submit(mode?)` 的 mode 是可选的 —— **不传就是宿主默认的「回车提交」语义**，
+      //   用户的「繁忙时发送行为」（排队/插话）偏好仍然生效。
+      //   只有 Ctrl/Cmd 加速路径才需要显式传 'queue'（见 onKeyDown 的注释）。
+      function submitAttached(mode) {
+        var current = currentSessionId()
         if (current === undefined) return
         var scoped = sessions.scope(current)
         if (scoped === undefined) return
         try {
-          ctx.conversation.input.for(scoped).submit('queue')
+          var shell = ctx.conversation.input.for(scoped)
+          if (mode === undefined) shell.submit()
+          else shell.submit(mode)
         } catch (err) {
           console.warn('[annotation] 批注直接提交失败：', err)
         }
@@ -1553,7 +1608,7 @@ window.__ModuleLoader__.load({
        *  返回 true 表示批注块已在草稿中（本次刚拼入，或之前已拼入未发送）。 */
       function attachAndSend(e) {
         lastAttachWasPure = false
-        var current = sessions.list.getSnapshot().current
+        var current = currentSessionId()
         if (current === undefined) return false
         try {
           var scoped = sessions.scope(current)
@@ -1840,10 +1895,10 @@ window.__ModuleLoader__.load({
       function watchInputDraft() {
         if (inputWatchTimer !== null) { clearInterval(inputWatchTimer); inputWatchTimer = null }
         if (typeof inputUnsub === 'function') { inputUnsub(); inputUnsub = null }
-        var id = sessions.list.getSnapshot().current
+        var id = currentSessionId()
         if (id !== undefined && tryWatchInputDraft(id)) return
         inputWatchTimer = setInterval(function () {
-          var cur = sessions.list.getSnapshot().current
+          var cur = currentSessionId()
           if (cur !== undefined && tryWatchInputDraft(cur)) {
             clearInterval(inputWatchTimer)
             inputWatchTimer = null
@@ -2246,10 +2301,10 @@ window.__ModuleLoader__.load({
       }
 
       // ---------- 待发送批注按会话恢复 ----------
-      var lastSessionId = sessions.list.getSnapshot().current
+      var lastSessionId = currentSessionId()
       ui.quotes = readPendingQuotes(lastSessionId)
       var unsub = sessions.list.subscribe(function () {
-        var cur = sessions.list.getSnapshot().current
+        var cur = currentSessionId()
         if (cur === lastSessionId) return
         writePendingQuotes(lastSessionId)
         lastSessionId = cur
