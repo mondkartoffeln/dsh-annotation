@@ -1139,7 +1139,17 @@ window.__ModuleLoader__.load({
           var input = e.target instanceof Element && e.target.closest('[data-composer-input]')
           if (input !== null && input.closest('[data-composer-card]') !== null) {
             var attached = attachAndSend(e)
-            if (attached && (e.ctrlKey || e.metaKey)) {
+            // ★★ 2026-09-25：裸回车在「纯批注 + 空草稿」时也必须**主动提交**。
+            //   原来只有 Ctrl/Cmd+Enter 走 submitAttached()，裸回车是「把批注写进草稿、
+            //   让宿主自己提交」。这条在 0.1.7 上断了，两重原因：
+            //     ① 输入框是 Lexical 编辑器，回车键映射 `installDraftKeymap(editor, …)`
+            //        读的是**编辑器自己的状态**，我们 capture 阶段 setDraft 写进去的
+            //        新草稿它当帧看不到；
+            //     ② 草稿空 + agent 运行中时 `primaryStops` 成立，主按钮变成
+            //        「停止生成」—— **界面上根本没有发送按钮可点**。
+            //   → 结果：纯批注永远发不出去（2026-09-25 实测）。
+            //   ★ 安全性：空草稿时裸回车本来什么都不做，所以这里接管不会抢用户的动作。
+            if (attached && (e.ctrlKey || e.metaKey || lastAttachWasPure)) {
               e.preventDefault()
               e.stopPropagation()
               submitAttached()
@@ -1163,13 +1173,31 @@ window.__ModuleLoader__.load({
         }
       }
 
+      // ★★ 2026-09-25 修 DSH 0.1.7 不兼容：主按钮的 aria-label 现在是**动态的**。
+      //   核心 `dsh-client-ui-conversation` 的原式：
+      //     const primaryLabel = primaryStops ? t("input.stop")            // 「停止生成」
+      //       : running && steeringAvailable && !disabled && !uploadsPending && plainMessageDraft
+      //         ? t(primarySubmitMode === "steer" ? "input.send.steer" : "input.send.queue")
+      //         : t("input.send")                                           // 「发送消息」
+      //   旧代码只认「发送消息」一个 —— 于是 **agent 运行中 + 草稿有字** 时
+      //   （标签变成「排队发送」/「插话发送」）这里返回 null，点按钮完全不接管，
+      //   批注就随消息发不出去。（0.1.5 只有「发送消息」，0.1.7 新增了繁忙时发送行为。）
+      //
+      //   ★「停止生成」**故意不认**：那个按钮的动作是**停止**、不是发送。
+      //     把它当成发送按钮接过来，会把用户的「我要停」变成「我要发」。
+      //     纯批注 + 空草稿 + 运行中的情形，由裸回车的主动提交覆盖（见 onKeyDown）。
+      var SEND_LABELS = [
+        '发送消息', '排队发送', '插话发送',
+        'Send message', 'Queue message', 'Steer message'
+      ]
+
       function sendButtonOf(target) {
         if (!(target instanceof Element) || typeof target.closest !== 'function') return null
         var button = target.closest('button')
         if (!(button instanceof HTMLButtonElement)
           || button.closest('[data-composer-card]') === null) return null
         var label = button.getAttribute('aria-label')
-        return label === '发送消息' || label === 'Send message' ? button : null
+        return SEND_LABELS.indexOf(label) >= 0 ? button : null
       }
 
       // 鼠标/触控发送不经过 textarea 的 Enter 路径。pointerdown 能覆盖宿主因
@@ -1524,6 +1552,7 @@ window.__ModuleLoader__.load({
       /** 提交前把批注块拼进 composer 草稿（随回车一起发送）。
        *  返回 true 表示批注块已在草稿中（本次刚拼入，或之前已拼入未发送）。 */
       function attachAndSend(e) {
+        lastAttachWasPure = false
         var current = sessions.list.getSnapshot().current
         if (current === undefined) return false
         try {
@@ -1549,6 +1578,9 @@ window.__ModuleLoader__.load({
           var block = buildBlock(hasQuestion)
           shell.setDraft(block + (hasQuestion ? '\n' + draft : ''))
           annotationAttached = true
+          // ★ 纯批注（拼稿前草稿是空的）→ 告诉 onKeyDown 要主动 submit。
+          //   「草稿已含批注块」那条早返回路径不设它（那种情况草稿非空，宿主自己能提交）。
+          lastAttachWasPure = !hasQuestion
           console.log('[annotation] 批注块已拼入草稿，回车将随消息发送（' + ui.quotes.length + ' 条）')
           return true
         } catch (err) {
@@ -1766,6 +1798,9 @@ window.__ModuleLoader__.load({
       // 仅当批注块真正拼入过草稿（用户按过回车）才在草稿清空时清除批注，
       // 避免普通草稿编辑（打字后删字）误触发「已发送」判定而清空批注集。
       var annotationAttached = false
+      // ★ 2026-09-25：上一次 attachAndSend 拼的是不是「纯批注」（拼稿前草稿是空的）。
+      //   onKeyDown 用它决定裸回车要不要主动 submit —— 见那里的长注释。
+      var lastAttachWasPure = false
       var inputWatchTimer = null
       function tryWatchInputDraft(id) {
         try {
