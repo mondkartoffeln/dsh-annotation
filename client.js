@@ -162,10 +162,55 @@ window.__ModuleLoader__.load({
         '  transition: filter .12s ease; }',
         '.dsh-ann-num:hover { filter: brightness(1.15); }',
         'body:has([role="dialog"][aria-modal="true"]) [data-annotation-overlay] { display: none; }',
-        '.dsh-ann-tip { animation: dsh-ann-pop .12s var(--ds-ease-in-out, ease); }',
+        // ★★★ 2026-09-25 重做悬浮气泡的观感（实测：① 字看不清 ② 右边框溢出）。
+        //
+        //   【问题一 · 太透明】原来背景用 `--dsw-specific-menu`，而它是
+        //     `var(--dsw-menu-surface-fill)` = **`#f8f9fa94`** —— 末尾 `94` 是 alpha，
+        //     即 **58% 不透明**。DSH 自己的菜单用这个表面时都同时套了
+        //     `--dsw-menu-backdrop-filter: blur(40px) saturate(150%)` 做毛玻璃补偿；
+        //     气泡只拿了半透明、没加模糊 → 正文透上来，字糊成一片。
+        //   【改法】**不透明底 + 半透明主题色叠上去**，两层都走 token，深浅主题都对：
+        //     background-color → `--dsw-alias-bg-overlay`（实测 `#e9ecf2`，不透明，
+        //                        且比页面白底 `#fff` 略深 → 自身就有边界感）
+        //     background-image → `--dsw-alias-interactive-bg-hover`（`#2631480f` 主题薄雾）
+        //   ★ 不保留 backdrop-filter：气泡要**立刻可读**，模糊只会让下层的字更糊。
+        //
+        //   【问题二 · 边框等于没有】原来边框用 `--dsw-alias-border-inverted`，
+        //     而它实测是 **`#0000`（全透明）**。改法：**双层边缘** ——
+        //     深色外框用最深的 `--dsw-alias-border-l4`（`#00000029`，16% 黑），
+        //     再叠一圈浅色内描边。实测浅色主题下 l4 也只有 16% 黑，单用不够稳；
+        //     深外框 + 浅内描边在深/浅主题下都能给出清晰的 1px 边界。
+        //
+        //   【问题三 · 右边框溢出】见 viewportWidth() 的注释 —— 8 处都在用
+        //     `window.innerWidth` 夹右边缘，而它**含纵向滚动条宽度**（约 15px），
+        //     `position:fixed` 却是按可视区定位的 → 一律越界。改用 clientWidth。
+        '.dsh-ann-tip {',
+        '  box-sizing: border-box;',
+        '  max-width: calc(100vw - 16px);',
+        '  background-color: var(--dsw-alias-bg-overlay, #e9ecf2);',
+        '  background-image: linear-gradient(var(--dsw-alias-interactive-bg-hover, transparent), var(--dsw-alias-interactive-bg-hover, transparent));',
+        '  border: 1px solid var(--dsw-alias-border-l4, #00000029);',
+        '  box-shadow: var(--dsw-shadow-lv3, 0 12px 32px rgba(0,0,0,.14)), inset 0 0 0 1px rgba(255,255,255,.55);',
+        '  border-radius: var(--dsw-radius-md, 12px);',
+        '  color: var(--dsw-alias-label-primary, #0f1115);',
+        '  font-family: var(--dsw-font-family, system-ui);',
+        '  animation: dsh-ann-pop .12s var(--ds-ease-in-out, ease); }',
         '@keyframes dsh-ann-fadein { from { opacity: 0; } to { opacity: 1; } }',
       ].join('\n')
       document.head.appendChild(style)
+    }
+
+    // ★★★ 视口可用宽度（2026-09-25）。
+    //   **不能用 `window.innerWidth`** —— 它把纵向滚动条的宽度（约 15px）也算进去，
+    //   而 `position: fixed` 的元素是按**可视区**定位的。
+    //   拿 innerWidth 去夹右边缘，算出来的 left 实际让右边缘越过了可视区 ——
+    //   实测「批注气泡右边框溢出到右侧外面」就是这个原因。
+    //   `document.documentElement.clientWidth` 才是**不含滚动条**的可视区宽度。
+    //   ★ 全插件 8 处夹边缘的地方统一走这里。
+    function viewportWidth() {
+      // ★ 这里的兜底必须写 `window.innerWidth` 字面量 —— 别被全局替换卷进来
+      //   （改成 viewportWidth() 就成了自我调用、无限递归）。
+      return document.documentElement.clientWidth || window.innerWidth
     }
 
     // ============================== i18n（zh / en） ==============================
@@ -734,7 +779,7 @@ window.__ModuleLoader__.load({
     function placeAbove(rect, height) {
       var w = 400
       var left = rect.left + rect.width / 2 - w / 2
-      left = Math.max(8, Math.min(left, window.innerWidth - w - 8))
+      left = Math.max(8, Math.min(left, viewportWidth() - w - 8))
       // 下方优先：原生选中菜单（移动端长按菜单、桌面 Copy/Search 浮层）锚定在选区
       // 上沿附近，且原生 UI 恒绘制在页面内容之上（z-index 无效），工具条放上方必被
       // 遮挡；因此下方放得下就放下方，放不下才回上方。
@@ -1380,7 +1425,7 @@ window.__ModuleLoader__.load({
 
       function positionEditor(card, left, top) {
         ui.pos = {
-          left: Math.max(8, Math.min(left, window.innerWidth - card.offsetWidth - 8)),
+          left: Math.max(8, Math.min(left, viewportWidth() - card.offsetWidth - 8)),
           top: Math.max(8, Math.min(top, window.innerHeight - card.offsetHeight - 8)),
         }
         card.style.left = ui.pos.left + 'px'
@@ -1473,7 +1518,7 @@ window.__ModuleLoader__.load({
             var chipTop = anchor.top - 20
             if (chipTop < 4) chipTop = Math.min(anchor.top + 2, window.innerHeight - 22)
             if (chipTop < 4) chipTop = 4
-            var chipLeft = Math.max(4, Math.min(anchor.left - 4, window.innerWidth - 24))
+            var chipLeft = Math.max(4, Math.min(anchor.left - 4, viewportWidth() - 24))
             var tries = 0
             while (tries < 12) {
               var clash = false
@@ -1486,7 +1531,7 @@ window.__ModuleLoader__.load({
               }
               if (!clash) break
               chipLeft += 18
-              if (chipLeft > window.innerWidth - 24) { chipLeft = 4; chipTop += 18 }
+              if (chipLeft > viewportWidth() - 24) { chipLeft = 4; chipTop += 18 }
               tries++
             }
             placed.push({ left: chipLeft, top: chipTop })
@@ -1766,7 +1811,7 @@ window.__ModuleLoader__.load({
         if (card === null) { chipLayer.style.display = 'none'; return }
         var r = card.getBoundingClientRect()
         if (r.width === 0 || r.height === 0 || r.right <= 0 || r.bottom <= 0
-          || r.left >= window.innerWidth || r.top >= window.innerHeight) {
+          || r.left >= viewportWidth() || r.top >= window.innerHeight) {
           chipLayer.style.display = 'none'
           return
         }
@@ -1800,7 +1845,7 @@ window.__ModuleLoader__.load({
         tipLayer.textContent = ''
         var el = document.createElement('div')
         el.className = 'dsh-ann-tip'
-        el.style.cssText = 'position:fixed;z-index:1160;width:300px;max-width:calc(100vw - 16px);padding:10px 12px;border-radius:12px;border:1px solid var(--dsw-alias-border-inverted);background:var(--dsw-specific-menu,#2c2c2e);box-shadow:var(--dsw-shadow-lv3);font-family:var(--dsw-font-family,system-ui);font-size:12px;color:var(--dsw-alias-label-primary);'
+        el.style.cssText = 'position:fixed;z-index:1160;width:300px;padding:10px 12px;font-size:12px;'
         var head = document.createElement('div')
         head.style.cssText = 'font-weight:600;margin-bottom:6px;'
         head.textContent = t('tip.title', { n: ui.quotes.length })
@@ -1838,14 +1883,18 @@ window.__ModuleLoader__.load({
         }
         tipLayer.appendChild(el)
         var r2 = chipLayer.getBoundingClientRect()
-        var w2 = 300
+        // ★★ 2026-09-25：宽度必须先夹到可视区内 —— 固定 300px 在
+        //   「左侧栏展开 + 窗口变窄」时会直接把右边缘顶出可视区。
+        var w2 = Math.max(160, Math.min(300, viewportWidth() - 16))
+        // ★ 先定宽、再量高：定了宽文字才会按最终宽度折行；
+        //   原来的顺序（先量高、后设宽）量到的是旧宽度下的高度 → 垂直定位偏。
+        el.style.width = w2 + 'px'
         var h2 = el.offsetHeight || 120
-        var left = Math.max(8, Math.min(r2.left, window.innerWidth - w2 - 8))
+        var left = Math.max(8, Math.min(r2.left, viewportWidth() - w2 - 8))
         var top = r2.top - h2 - 6
         if (top < 8) top = r2.bottom + 6
         el.style.left = left + 'px'
         el.style.top = Math.max(8, top) + 'px'
-        el.style.width = w2 + 'px'
       }
 
       // ---------- 发送完成监听（草稿从有内容变空 → 清空批注集） ----------
@@ -2013,7 +2062,7 @@ window.__ModuleLoader__.load({
             tipLayer.textContent = ''
             var el = document.createElement('div')
             el.className = 'dsh-ann-tip'
-            el.style.cssText = 'position:fixed;z-index:1160;width:300px;max-width:calc(100vw - 16px);padding:10px 12px;border-radius:12px;border:1px solid var(--dsw-alias-border-inverted);background:var(--dsw-specific-menu,#2c2c2e);box-shadow:var(--dsw-shadow-lv3);font-family:var(--dsw-font-family,system-ui);font-size:12px;color:var(--dsw-alias-label-primary);'
+            el.style.cssText = 'position:fixed;z-index:1160;width:300px;padding:10px 12px;font-size:12px;'
             var head = document.createElement('div')
             head.style.cssText = 'font-weight:600;margin-bottom:6px;'
             head.textContent = t('bubble.title', { n: list.length })
@@ -2039,14 +2088,15 @@ window.__ModuleLoader__.load({
             }
             tipLayer.appendChild(el)
             var r2 = tag.getBoundingClientRect()
-            var w2 = 300
+            // ★★ 2026-09-25：同上 —— 先夹宽、先定宽再量高（见 showChipTip 的注释）。
+            var w2 = Math.max(160, Math.min(300, viewportWidth() - 16))
+            el.style.width = w2 + 'px'
             var h2 = el.offsetHeight || 120
-            var left = Math.max(8, Math.min(r2.left, window.innerWidth - w2 - 8))
+            var left = Math.max(8, Math.min(r2.left, viewportWidth() - w2 - 8))
             var top = r2.bottom + 6
             if (top + h2 > window.innerHeight - 8) top = r2.top - h2 - 6
             el.style.left = left + 'px'
             el.style.top = Math.max(8, top) + 'px'
-            el.style.width = w2 + 'px'
           })
           var bubbleGrace = null
           function bubbleHide() {
@@ -2193,7 +2243,7 @@ window.__ModuleLoader__.load({
           tipLayer.textContent = ''
           var el = document.createElement('div')
           el.className = 'dsh-ann-tip'
-          el.style.cssText = 'position:fixed;z-index:1160;width:320px;max-width:calc(100vw - 16px);padding:10px 12px;border-radius:12px;border:1px solid var(--dsw-alias-border-inverted);background:var(--dsw-specific-menu,#2c2c2e);box-shadow:var(--dsw-shadow-lv3);font-family:var(--dsw-font-family,system-ui);font-size:12px;color:var(--dsw-alias-label-primary);'
+          el.style.cssText = 'position:fixed;z-index:1160;width:320px;padding:10px 12px;font-size:12px;'
           var head = document.createElement('div')
           head.style.cssText = 'font-weight:600;margin-bottom:6px;'
           head.textContent = item !== undefined ? t('reply.headWithQuote', { n: num }) : t('reply.headNoQuote', { n: num })
@@ -2217,14 +2267,15 @@ window.__ModuleLoader__.load({
           }
           tipLayer.appendChild(el)
           var r2 = chip.getBoundingClientRect()
-          var w2 = 320
+          // ★★ 2026-09-25：同上 —— 先夹宽、先定宽再量高（见 showChipTip 的注释）。
+          var w2 = Math.max(160, Math.min(320, viewportWidth() - 16))
+          el.style.width = w2 + 'px'
           var h2 = el.offsetHeight || 100
-          var left = Math.max(8, Math.min(r2.left, window.innerWidth - w2 - 8))
+          var left = Math.max(8, Math.min(r2.left, viewportWidth() - w2 - 8))
           var top = r2.bottom + 6
           if (top + h2 > window.innerHeight - 8) top = r2.top - h2 - 6
           el.style.left = left + 'px'
           el.style.top = Math.max(8, top) + 'px'
-          el.style.width = w2 + 'px'
         })
         chip.addEventListener('mouseleave', hide)
         tipLayer.addEventListener('mouseenter', keep)
